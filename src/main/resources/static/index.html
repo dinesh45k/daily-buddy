@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Daily Buddy</title>
+<style>
+  body{font-family:system-ui,sans-serif;margin:0;background:#f4f6f8;color:#222}
+  main{max-width:900px;margin:0 auto;padding:16px;display:grid;gap:16px;grid-template-columns:1fr 1fr}
+  @media(max-width:700px){main{grid-template-columns:1fr}}
+  h1{grid-column:1/-1;margin:0}
+  section{background:#fff;border-radius:10px;padding:16px;box-shadow:0 1px 4px #0001}
+  ul{list-style:none;padding:0}li{display:flex;gap:8px;align-items:center;padding:6px 0}
+  li.done span{text-decoration:line-through;color:#888}li span{flex:1}
+  input{padding:8px;border:1px solid #ccc;border-radius:6px}button{padding:8px 12px;border:0;border-radius:6px;background:#2563eb;color:#fff;cursor:pointer}
+  #log{height:300px;overflow:auto;border:1px solid #eee;border-radius:6px;padding:8px;margin-bottom:8px}
+  .u{color:#2563eb;margin-bottom:8px}.a{color:#111;margin-bottom:8px}.row{display:flex;gap:8px}.row input{flex:1}
+</style>
+</head>
+<body>
+<main>
+  <h1>Daily Buddy</h1>
+  <section>
+    <h2>Tasks</h2>
+    <div class="row"><input id="title" placeholder="New task"><input id="due" type="date"><button id="add">Add</button></div>
+    <ul id="tasks"></ul>
+  </section>
+  <section>
+    <h2>Chat</h2>
+    <div id="log"></div>
+    <div class="row"><input id="msg" placeholder="Ask your assistant..."><button id="send">Send</button></div>
+  </section>
+</main>
+<script>
+const history = [];
+const $ = id => document.getElementById(id);
+
+async function loadTasks() {
+  const res = await fetch('/api/tasks');
+  const tasks = await res.json();
+  $('tasks').innerHTML = '';
+  tasks.forEach(t => {
+    const li = document.createElement('li');
+    if (t.done) li.className = 'done';
+    const span = document.createElement('span');
+    span.textContent = t.title + (t.dueDate ? ' (' + t.dueDate + ')' : '');
+    const toggle = document.createElement('button');
+    toggle.textContent = t.done ? 'Undo' : 'Done';
+    toggle.onclick = async () => { await fetch('/api/tasks/' + t.id + '/toggle', {method: 'PATCH'}); loadTasks(); };
+    const del = document.createElement('button');
+    del.textContent = 'X';
+    del.onclick = async () => { await fetch('/api/tasks/' + t.id, {method: 'DELETE'}); loadTasks(); };
+    li.append(span, toggle, del);
+    $('tasks').appendChild(li);
+  });
+}
+
+$('add').onclick = async () => {
+  const title = $('title').value.trim();
+  if (!title) return;
+  const body = {title};
+  if ($('due').value) body.dueDate = $('due').value;
+  await fetch('/api/tasks', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+  $('title').value = ''; $('due').value = '';
+  loadTasks();
+};
+
+function addLine(cls, text) {
+  const d = document.createElement('div');
+  d.className = cls; d.textContent = text;
+  $('log').appendChild(d); $('log').scrollTop = $('log').scrollHeight;
+}
+
+async function send() {
+  const message = $('msg').value.trim();
+  if (!message) return;
+  $('msg').value = '';
+  addLine('u', 'You: ' + message);
+  try {
+    const res = await fetch('/api/chat', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({message, history})});
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || data.detail || 'Request failed');
+    history.push({role: 'user', content: message}, {role: 'assistant', content: data.reply});
+    addLine('a', 'Assistant: ' + data.reply);
+  } catch (e) {
+    addLine('a', 'Error: ' + e.message);
+  }
+}
+$('send').onclick = send;
+$('msg').addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
+loadTasks();
+</script>
+</body>
+</html>
